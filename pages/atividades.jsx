@@ -15,43 +15,71 @@ export default function Atividades() {
   const [uploading, setUploading] = useState(false)
 
   useEffect(() => {
-    fetchData()
-  }, [])
+    if (profile?.id) {
+      fetchData()
+    }
+  }, [profile])
 
   async function fetchData() {
+    if (!profile?.id) return
+    
     setLoading(true)
-    const { data: types } = await supabase
-      .from('activity_types')
-      .select('*')
-      .eq('is_active', true)
-      .order('display_order')
-    setActivityTypes(types || [])
+    try {
+      // Buscar tipos de atividade
+      const { data: types, error: typesError } = await supabase
+        .from('activity_types')
+        .select('*')
+        .eq('is_active', true)
+        .order('display_order')
 
-    const { data: activities } = await supabase
-      .from('activities')
-      .select(`*, activity_types(name, icon, default_points)`)
-      .eq('profile_id', profile?.id)
-      .order('created_at', { ascending: false })
-      .limit(20)
-    setMyActivities(activities || [])
-    setLoading(false)
+      if (typesError) {
+        console.error('Erro ao buscar tipos:', typesError)
+      } else {
+        setActivityTypes(types || [])
+      }
+
+      // Buscar atividades do usuário
+      const { data: activities, error: activitiesError } = await supabase
+        .from('activities')
+        .select(`
+          *,
+          activity_types(name, icon, default_points)
+        `)
+        .eq('profile_id', profile.id)
+        .order('created_at', { ascending: false })
+        .limit(20)
+
+      if (activitiesError) {
+        console.error('Erro ao buscar atividades:', activitiesError)
+      } else {
+        setMyActivities(activities || [])
+      }
+    } catch (err) {
+      console.error('Erro geral:', err)
+    } finally {
+      setLoading(false)
+    }
   }
 
   async function handleSubmit(e) {
     e.preventDefault()
     if (!selectedType || !profile?.id) {
-      toast.error('Dados incompletos')
+      toast.error('Dados incompletos. Tente novamente.')
       return
     }
+
     setUploading(true)
     try {
-      const { data: season } = await supabase
+      // Buscar temporada ativa
+      const { data: season, error: seasonError } = await supabase
         .from('seasons')
         .select('id')
         .eq('name', 'Temporada 2026')
         .single()
 
-      if (!season) throw new Error('Temporada 2026 não encontrada')
+      if (seasonError || !season) {
+        throw new Error('Temporada 2026 não encontrada')
+      }
 
       const { data, error } = await supabase
         .from('activities')
@@ -69,9 +97,13 @@ export default function Atividades() {
         .select()
 
       if (error) throw error
-      toast.success(selectedType.requires_approval
-        ? 'Atividade enviada! Aguardando aprovação.'
-        : 'Atividade registrada! Pontos creditados.')
+
+      toast.success(
+        selectedType.requires_approval
+          ? 'Atividade enviada! Aguardando aprovação.'
+          : 'Atividade registrada! Pontos creditados.'
+      )
+
       setShowForm(false)
       setSelectedType(null)
       setFormData({ title: '', description: '', quantity: 1 })
@@ -91,6 +123,7 @@ export default function Atividades() {
       rejected: { bg: '#fee2e2', color: '#991b1b', icon: <XCircle size={12} />, label: 'Rejeitado' }
     }
     const s = styles[status] || styles.pending
+    const Icon = s.icon
     return (
       <span style={{
         display: 'inline-flex', alignItems: 'center', gap: 4,
@@ -98,12 +131,20 @@ export default function Atividades() {
         background: s.bg, color: s.color,
         fontSize: 11, fontWeight: 600
       }}>
-        {s.icon} {s.label}
+        <Icon size={12} /> {s.label}
       </span>
     )
   }
 
   const icons = { Calendar, Receipt, Camera, Handshake }
+
+  if (!profile) {
+    return (
+      <div style={{ padding: 40, textAlign: 'center', color: '#94a3b8' }}>
+        Carregando...
+      </div>
+    )
+  }
 
   return (
     <div>
@@ -134,10 +175,12 @@ export default function Atividades() {
                 onMouseEnter={(e) => {
                   e.currentTarget.style.borderColor = '#2d8f5a'
                   e.currentTarget.style.transform = 'translateY(-1px)'
+                  e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.04)'
                 }}
                 onMouseLeave={(e) => {
                   e.currentTarget.style.borderColor = '#e2e8f0'
                   e.currentTarget.style.transform = 'translateY(0)'
+                  e.currentTarget.style.boxShadow = 'none'
                 }}
               >
                 <span style={{
@@ -179,7 +222,10 @@ export default function Atividades() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20 }}>
             <button
               onClick={() => setShowForm(false)}
-              style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', fontSize: 14 }}
+              style={{
+                background: 'none', border: 'none', color: '#94a3b8',
+                cursor: 'pointer', fontSize: 14
+              }}
             >
               ← Voltar
             </button>
@@ -189,7 +235,10 @@ export default function Atividades() {
           </div>
           <form onSubmit={handleSubmit}>
             <div style={{ marginBottom: 16 }}>
-              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#64748b', marginBottom: 6 }}>
+              <label style={{
+                display: 'block', fontSize: 12, fontWeight: 600,
+                color: '#64748b', marginBottom: 6
+              }}>
                 Título da atividade
               </label>
               <input
@@ -197,11 +246,18 @@ export default function Atividades() {
                 value={formData.title}
                 onChange={(e) => setFormData({ ...formData, title: e.target.value })}
                 placeholder="Ex: Participação na Rota de Agosto"
-                style={{ width: '100%', padding: '10px 14px', border: '1px solid #e2e8f0', borderRadius: 10, fontSize: 14, outline: 'none' }}
+                style={{
+                  width: '100%', padding: '10px 14px',
+                  border: '1px solid #e2e8f0', borderRadius: 10,
+                  fontSize: 14, outline: 'none'
+                }}
               />
             </div>
             <div style={{ marginBottom: 16 }}>
-              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#64748b', marginBottom: 6 }}>
+              <label style={{
+                display: 'block', fontSize: 12, fontWeight: 600,
+                color: '#64748b', marginBottom: 6
+              }}>
                 Descrição / Detalhes
               </label>
               <textarea
@@ -209,11 +265,18 @@ export default function Atividades() {
                 onChange={(e) => setFormData({ ...formData, description: e.target.value })}
                 placeholder="Descreva a atividade realizada..."
                 rows={3}
-                style={{ width: '100%', padding: '10px 14px', border: '1px solid #e2e8f0', borderRadius: 10, fontSize: 14, outline: 'none', resize: 'vertical' }}
+                style={{
+                  width: '100%', padding: '10px 14px',
+                  border: '1px solid #e2e8f0', borderRadius: 10,
+                  fontSize: 14, outline: 'none', resize: 'vertical'
+                }}
               />
             </div>
             <div style={{ marginBottom: 20 }}>
-              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#64748b', marginBottom: 6 }}>
+              <label style={{
+                display: 'block', fontSize: 12, fontWeight: 600,
+                color: '#64748b', marginBottom: 6
+              }}>
                 Quantidade
               </label>
               <input
@@ -221,7 +284,11 @@ export default function Atividades() {
                 min={1}
                 value={formData.quantity}
                 onChange={(e) => setFormData({ ...formData, quantity: parseInt(e.target.value) || 1 })}
-                style={{ width: 100, padding: '10px 14px', border: '1px solid #e2e8f0', borderRadius: 10, fontSize: 14, outline: 'none' }}
+                style={{
+                  width: 100, padding: '10px 14px',
+                  border: '1px solid #e2e8f0', borderRadius: 10,
+                  fontSize: 14, outline: 'none'
+                }}
               />
               <span style={{ fontSize: 12, color: '#94a3b8', marginLeft: 10 }}>
                 Total estimado: <strong style={{ color: '#1a5c3a' }}>{selectedType.default_points * formData.quantity} pts</strong>
@@ -275,12 +342,15 @@ export default function Atividades() {
                 </div>
                 <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>
                   {act.activity_types?.name} · Enviado em {new Date(act.created_at).toLocaleDateString('pt-BR')}
+                  {act.reviewed_at && ` · ${act.status === 'approved' ? 'Aprovado' : 'Rejeitado'} em ${new Date(act.reviewed_at).toLocaleDateString('pt-BR')}`}
                 </div>
               </div>
-              <div style={{ fontSize: 13, fontWeight: 700, color: act.status === 'rejected' ? '#dc2626' : act.status === 'approved' ? '#1a5c3a' : '#f59e0b' }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: act.status === 'rejected' ? '#dc2626' : act.status === 'approved' ? '#1a5c3a' : '#f59e0b', fontVariantNumeric: 'tabular-nums' }}>
                 {act.status === 'rejected' ? '0' : act.points_awarded !== null ? `+${act.points_awarded}` : '—'}
               </div>
-              <div>{getStatusBadge(act.status)}</div>
+              <div>
+                {getStatusBadge(act.status)}
+              </div>
             </div>
           ))
         )}
