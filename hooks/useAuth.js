@@ -9,17 +9,23 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
+    // Verificar sessão atual
     supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user ?? null)
-      if (session?.user) fetchProfile(session.user.id)
-      else setLoading(false)
+      if (session?.user) {
+        fetchProfile(session.user.id)
+      } else {
+        setLoading(false)
+      }
     })
 
+    // Listener de mudanças de auth
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
         setUser(session?.user ?? null)
-        if (session?.user) await fetchProfile(session.user.id)
-        else {
+        if (session?.user) {
+          await fetchProfile(session.user.id)
+        } else {
           setProfile(null)
           setLoading(false)
         }
@@ -30,15 +36,26 @@ export function AuthProvider({ children }) {
   }, [])
 
   async function fetchProfile(userId) {
-    const { data } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', userId)
-      .single()
-    setProfile(data)
-    setLoading(false)
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', userId)
+        .single()
+      
+      if (error) {
+        console.error('Erro ao buscar perfil:', error)
+      } else {
+        setProfile(data)
+      }
+    } catch (err) {
+      console.error('Erro ao buscar perfil:', err)
+    } finally {
+      setLoading(false)
+    }
   }
 
+  // Ler role do JWT (app_metadata) em vez da tabela profiles
   const userRole = user?.app_metadata?.role || user?.user_metadata?.role || 'member'
   const isAdmin = userRole === 'admin'
   const isManager = userRole === 'manager' || userRole === 'admin'
